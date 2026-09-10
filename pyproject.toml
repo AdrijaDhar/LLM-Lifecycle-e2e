@@ -1,0 +1,28 @@
+[project]
+name = "forge"
+version = "0.1.0"
+description = "End-to-end small-LLM lifecycle toolkit: from-scratch pretraining + Terraform RLVR"
+authors = [
+    { name = "Adrija Dhar", email = "ad.21u10475@btech.nitdgp.ac.in" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "datasets>=5.0.1",
+    "huggingface-hub>=1.31.0",
+    "mlx>=0.32.2",
+    "numpy>=2.5.3",
+    "regex>=2026.9.10",
+    "tqdm>=4.70.0",
+]
+
+[project.scripts]
+forge = "forge:main"
+
+[build-system]
+requires = ["uv_build>=0.12.10,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
