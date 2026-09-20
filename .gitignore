@@ -5,4 +5,5 @@ data/
 checkpoints/
 *.jsonl
 *.bin
+*.log
 docs/
