@@ -132,6 +132,16 @@ class Transformer(nn.Module):
             logits.reshape(-1, logits.shape[-1]), targets.reshape(-1), reduction="mean"
         )
 
+    def loss_masked(self, idx: mx.array, targets: mx.array, loss_mask: mx.array) -> mx.array:
+        """Cross-entropy averaged over only the positions where loss_mask == 1
+        (SFT: assistant content + its <|end|>, not the user turn or role tags)."""
+        logits = self(idx)
+        per_token = nn.losses.cross_entropy(
+            logits.reshape(-1, logits.shape[-1]), targets.reshape(-1), reduction="none"
+        )
+        m = loss_mask.reshape(-1)
+        return (per_token * m).sum() / mx.maximum(m.sum(), 1.0)
+
     @property
     def n_params(self) -> int:
         return self.cfg.n_params

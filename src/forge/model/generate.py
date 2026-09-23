@@ -74,6 +74,11 @@ def generate(
     x = mx.array(prompt_ids, dtype=mx.int32)[None]
     logits = model(x, cache=cache)[:, -1]
     seen: set[int] = set(prompt_ids)
+    # Never penalize the intended stop token, even if it already appears in the
+    # prompt (e.g. a chat prompt's user turn closes with the same <|end|> the
+    # assistant turn should end with) - otherwise repetition penalty actively
+    # suppresses correct stopping.
+    seen.discard(eot_id)
 
     for _ in range(max_new_tokens):
         next_id = _sample(logits, temperature, top_k, seen, repetition_penalty)
