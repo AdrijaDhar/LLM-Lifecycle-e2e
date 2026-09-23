@@ -1,8 +1,8 @@
-"""Load a trained checkpoint and generate text from it.
+"""Chat with an SFT'd checkpoint using the <|user|>/<|assistant|>/<|end|> template.
 
-    uv run python scripts/sample.py checkpoints/135m-0911-0035/last
-    uv run python scripts/sample.py checkpoints/135m-0911-0035/last \
-        --prompt "The history of the Roman Empire" --temperature 0.7 --tokens 200
+    uv run python scripts/sample_chat.py checkpoints/135m-sft-.../last
+    uv run python scripts/sample_chat.py checkpoints/135m-sft-.../last \
+        --prompt "What is the capital of France?"
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ from pathlib import Path
 
 import mlx.core as mx
 
+from forge.data.chat import ChatFormat
 from forge.model.config import PRESETS
 from forge.model.generate import generate
 from forge.model.transformer import Transformer
@@ -23,23 +24,22 @@ from forge.training import checkpoint
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 DEFAULT_PROMPTS = [
-    "The history of the Roman Empire",
-    "Once upon a time, in a small village,",
-    "Photosynthesis is the process by which",
-    "The most important thing to remember about cooking pasta is",
+    "What is the capital of France?",
+    "Can you explain what photosynthesis is?",
+    "Give me a simple recipe for cooking pasta.",
+    "Tell me a short story about a village.",
 ]
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("ckpt", type=Path, help="checkpoint dir, e.g. checkpoints/135m-.../last")
-    ap.add_argument("--tokenizer", type=Path, default=REPO_ROOT / "data" / "tokenizer" / "fw32k.bpe.json")
-    ap.add_argument("--prompt", action="append", default=None, help="repeatable; default = 4 sample prompts")
+    ap.add_argument("ckpt", type=Path)
+    ap.add_argument("--tokenizer", type=Path, default=REPO_ROOT / "data" / "tokenizer" / "fw32k-chat.bpe.json")
+    ap.add_argument("--prompt", action="append", default=None)
     ap.add_argument("--tokens", type=int, default=150)
-    ap.add_argument("--temperature", type=float, default=0.8)
+    ap.add_argument("--temperature", type=float, default=0.7)
     ap.add_argument("--top-k", type=int, default=40)
-    ap.add_argument("--repetition-penalty", type=float, default=1.3,
-                     help="1.0 = off. >1 discourages repeating tokens (fixes loops)")
+    ap.add_argument("--repetition-penalty", type=float, default=1.3)
     args = ap.parse_args()
 
     st = json.loads((args.ckpt / "state.json").read_text())
@@ -47,6 +47,7 @@ def main() -> None:
 
     tok = BPETokenizer()
     tok.load(str(args.tokenizer))
+    fmt = ChatFormat.register(tok)  # no-op if already in the saved tokenizer file
     cfg.vocab_size = tok.vocab_size
 
     model = Transformer(cfg)
@@ -58,13 +59,11 @@ def main() -> None:
           f"from step {st['step']} (val loss {st.get('val_loss', '?')})\n")
 
     for prompt in (args.prompt or DEFAULT_PROMPTS):
-        ids = tok.encode(prompt)
-        print(f"--- {prompt!r} ---")
-        print(prompt, end="", flush=True)
+        ids = [fmt.user_id] + tok.encode(prompt) + [fmt.end_id, fmt.assistant_id]
+        print(f"> {prompt}")
         dec = StreamDecoder(tok)
-        for tid in generate(model, ids, max_new_tokens=args.tokens,
-                             temperature=args.temperature, top_k=args.top_k, eot_id=tok.eot_id,
-                             repetition_penalty=args.repetition_penalty):
+        for tid in generate(model, ids, max_new_tokens=args.tokens, temperature=args.temperature,
+                             top_k=args.top_k, eot_id=fmt.end_id, repetition_penalty=args.repetition_penalty):
             print(dec.push(tid), end="", flush=True)
         print(dec.flush(), end="")
         print("\n")

@@ -47,3 +47,32 @@ def load(
         optimizer.state = tree_unflatten(state)
 
     return json.loads((d / "state.json").read_text())
+
+
+def load_resized(ckpt_dir: str | Path, model: nn.Module) -> dict:
+    """Like `load`, but tolerates a vocab-size change (e.g. new chat special
+    tokens added after pretraining grew the embedding table).
+
+    `model` must already be constructed at the NEW (larger) vocab size, so its
+    freshly-initialised `tok_emb`/`lm_head` rows are the right shape and already
+    randomly initialised. For any saved weight whose shape doesn't match, we
+    keep the old rows as-is and keep the model's fresh random init for the rest
+    - i.e. old token ids keep their trained embedding, new ones start random.
+    """
+    d = Path(ckpt_dir)
+    saved = dict(mx.load(str(d / "model.safetensors")))
+    current = dict(tree_flatten(model.parameters()))
+
+    for name, old in saved.items():
+        new = current.get(name)
+        if new is None or old.shape == new.shape:
+            continue
+        if old.ndim != 1 or new.ndim != 1:
+            if old.shape[1:] != new.shape[1:] or old.shape[0] > new.shape[0]:
+                raise ValueError(f"cannot resize {name}: {old.shape} -> {new.shape}")
+        n_old = old.shape[0]
+        saved[name] = mx.concatenate([old, new[n_old:]], axis=0)
+        print(f"checkpoint.load_resized: {name} {tuple(old.shape)} -> {tuple(saved[name].shape)}")
+
+    model.update(tree_unflatten(list(saved.items())))
+    return json.loads((d / "state.json").read_text())

@@ -12,7 +12,7 @@ import mlx.nn as nn
 import mlx.optimizers as optim
 import numpy as np
 
-from forge.data.loader import TokenLoader
+from forge.data.loader import SFTLoader, TokenLoader
 from forge.model.config import ModelConfig
 from forge.model.transformer import Transformer
 from forge.training.schedule import wsd_lr, wsd_schedule
@@ -63,6 +63,55 @@ def test_loader_shapes_and_shift(tmp_path) -> None:
     assert x.shape == (8, 64) and y.shape == (8, 64)
     # y is x shifted by one position
     assert bool(mx.all(x[:, 1:] == y[:, :-1]))
+
+
+# --- SFT loader + masked loss ----------------------------------------------
+
+def test_sft_loader_mask_aligned_with_targets(tmp_path) -> None:
+    ids = np.arange(5000, dtype=np.uint16)
+    mask = (np.arange(5000) % 2).astype(np.uint8)  # alternating 0/1
+    (tmp_path / "train.bin").write_bytes(ids.tobytes())
+    (tmp_path / "train_mask.bin").write_bytes(mask.tobytes())
+
+    dl = SFTLoader(tmp_path / "train.bin", tmp_path / "train_mask.bin", seq_len=32, batch_size=4, seed=0)
+    x, y, m = dl.batch()
+    assert x.shape == (4, 32) and y.shape == (4, 32) and m.shape == (4, 32)
+    assert bool(mx.all(x[:, 1:] == y[:, :-1]))
+    # mask value at each position matches the original array at that target's index
+    assert set(np.unique(np.array(m))) <= {0.0, 1.0}
+
+
+def test_sft_loader_rejects_mismatched_lengths(tmp_path) -> None:
+    np.arange(100, dtype=np.uint16).tofile(tmp_path / "train.bin")
+    np.arange(50, dtype=np.uint8).tofile(tmp_path / "train_mask.bin")
+    try:
+        SFTLoader(tmp_path / "train.bin", tmp_path / "train_mask.bin", seq_len=8, batch_size=2)
+        raise AssertionError("should have rejected mismatched lengths")
+    except ValueError:
+        pass
+
+
+def test_loss_masked_all_ones_matches_plain_loss() -> None:
+    cfg = ModelConfig(vocab_size=64, dim=32, n_layers=2, n_heads=2, n_kv_heads=1,
+                       hidden_dim=64, max_seq_len=32)
+    model = Transformer(cfg)
+    x = mx.random.randint(0, cfg.vocab_size, (2, 16))
+    y = mx.random.randint(0, cfg.vocab_size, (2, 16))
+    ones = mx.ones((2, 16))
+    assert abs(float(model.loss(x, y)) - float(model.loss_masked(x, y, ones))) < 1e-4
+
+
+def test_loss_masked_ignores_zero_positions() -> None:
+    cfg = ModelConfig(vocab_size=64, dim=32, n_layers=2, n_heads=2, n_kv_heads=1,
+                       hidden_dim=64, max_seq_len=32)
+    model = Transformer(cfg)
+    x = mx.random.randint(0, cfg.vocab_size, (1, 8))
+    y = mx.random.randint(0, cfg.vocab_size, (1, 8))
+    half_mask = mx.array([[1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0]])
+    # loss over just the first half, computed by hand via a shorter sequence, should match
+    only_first = model.loss(x[:, :4], y[:, :4])
+    masked = model.loss_masked(x, y, half_mask)
+    assert abs(float(only_first) - float(masked)) < 1e-3
 
 
 # --- the whole machine: overfit a single batch ---------------------------

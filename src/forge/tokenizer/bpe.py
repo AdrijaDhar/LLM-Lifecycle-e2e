@@ -228,14 +228,16 @@ class BPETokenizer:
                 ids.extend(self._encode_ordinary(part))
         return ids
 
+    def id_to_bytes(self, i: int) -> bytes:
+        """Raw bytes for one token id, before UTF-8 decoding. A single id's bytes
+        are not necessarily valid UTF-8 on their own - a multi-byte character can
+        be split across adjacent tokens (see StreamDecoder)."""
+        if i in self.special_ids:
+            return self.special_ids[i].encode("utf-8")
+        return self.vocab[i]
+
     def decode(self, ids: list[int]) -> str:
-        out: list[bytes] = []
-        for i in ids:
-            if i in self.special_ids:
-                out.append(self.special_ids[i].encode("utf-8"))
-            else:
-                out.append(self.vocab[i])
-        return b"".join(out).decode("utf-8", errors="replace")
+        return b"".join(self.id_to_bytes(i) for i in ids).decode("utf-8", errors="replace")
 
     @property
     def vocab_size(self) -> int:

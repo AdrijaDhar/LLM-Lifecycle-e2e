@@ -1,0 +1,20 @@
+name: blast-radius-comment
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  comment:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # blast-radius resolution diffs against the base ref by name and needs
+          # real repo structure - the default shallow clone doesn't have either.
+          fetch-depth: 0
+      - uses: AdrijaDhar/graph-code@V1
+        with:
+          direction: both

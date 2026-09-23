@@ -1,0 +1,12 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  test:
+    # Apple Silicon runner, not ubuntu-latest: MLX needs real Metal hardware -
+    # a Linux/CPU-only runner has no GPU backend for it to use.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+      - run: uv sync
+      - run: uv run pytest -q
